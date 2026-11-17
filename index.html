@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON → SQL | Modelado e Índices Compuestos (E-R-S)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        stonebg: '#F4F6F5',
+                        sage: {
+                            50: '#F0FDFA',
+                            100: '#CCFBF1',
+                            200: '#99F6E4',
+                            600: '#0D9488',
+                            700: '#0F766E',
+                            800: '#115E59',
+                        },
+                        nord: {
+                            bg: '#1E293B',
+                            header: '#162032',
+                            mint: '#86EFAC',
+                            sky: '#7DD3FC',
+                            amber: '#FCD34D',
+                            text: '#E2E8F0'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 7px; height: 7px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.55); }
+        .step-nav-btn.is-active { background: #F0FDFA; }
+        .step-nav-btn.is-active .step-circle { background: #0F766E; color: #fff; }
+        .step-nav-btn:not(.is-active) .step-circle { background: #E2E8F0; color: #64748B; }
+        .sql-subtab.is-active { background: #1E293B; color: #E2E8F0; border-color: #1E293B; }
+        .sql-subtab:not(.is-active) { background: #fff; color: #475569; border-color: #E2E8F0; }
+        .sql-subtab:not(.is-active):hover { background: #F8FAFC; }
+        .toast-show { transform: translateY(0) !important; opacity: 1 !important; }
+    </style>
+</head>
+<body class="bg-stonebg text-slate-700 min-h-screen flex flex-col antialiased selection:bg-sage-100 selection:text-sage-800">
+
+    <header class="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-sage-50 border border-sage-100 text-sage-700 flex items-center justify-center">
+                    <i data-lucide="layers" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h1 class="font-semibold text-slate-800 text-sm sm:text-base tracking-tight">JSON → SQL &amp; Índices Compuestos</h1>
+                    <p class="text-xs text-slate-500 hidden sm:block">Modelado paso a paso para paginación de alto rendimiento</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200/70">
+                <i data-lucide="database" class="w-3.5 h-3.5 text-sage-600"></i>
+                <span id="headerTableBadge" class="font-mono font-medium text-slate-700">productos</span>
+                <span class="text-slate-300">•</span>
+                <span id="headerDialectBadge" class="capitalize">PostgreSQL</span>
+            </div>
+        </div>
+    </header>
+
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+        <div class="bg-slate-800 text-slate-100 px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2.5 text-sm font-medium border border-slate-700">
+            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+            <span id="toastMessage">Acción completada</span>
+        </div>
+    </div>
+
+    <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-6">
+
+        <nav aria-label="Progreso de configuración" class="bg-white rounded-2xl border border-slate-200/80 p-2 shadow-sm">
+            <ol class="grid grid-cols-3 gap-2">
+                <li>
+                    <button type="button" data-step-btn="1" class="step-nav-btn w-full flex items-center justify-center sm:justify-start gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all">
+                        <span class="step-circle w-6 h-6 rounded-full text-xs font-semibold flex items-center justify-center shrink-0 transition-colors">1</span>
+                        <div class="hidden sm:block overflow-hidden">
+                            <p class="text-xs font-semibold truncate">Datos JSON</p>
+                            <p class="text-[11px] text-slate-400 truncate">Origen y registros</p>
+                        </div>
+                        <span class="sm:hidden text-xs font-medium">Datos</span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button" data-step-btn="2" class="step-nav-btn w-full flex items-center justify-center sm:justify-start gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all">
+                        <span class="step-circle w-6 h-6 rounded-full text-xs font-semibold flex items-center justify-center shrink-0 transition-colors">2</span>
+                        <div class="hidden sm:block overflow-hidden">
+                            <p class="text-xs font-semibold truncate">Tabla e Índice</p>
+                            <p class="text-[11px] text-slate-400 truncate">Regla E-R-S</p>
+                        </div>
+                        <span class="sm:hidden text-xs font-medium">Esquema</span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button" data-step-btn="3" class="step-nav-btn w-full flex items-center justify-center sm:justify-start gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all">
+                        <span class="step-circle w-6 h-6 rounded-full text-xs font-semibold flex items-center justify-center shrink-0 transition-colors">3</span>
+                        <div class="hidden sm:block overflow-hidden">
+                            <p class="text-xs font-semibold truncate">SQL Listo</p>
+                            <p class="text-[11px] text-slate-400 truncate">DDL, Datos y Cursor</p>
+                        </div>
+                        <span class="sm:hidden text-xs font-medium">SQL</span>
+                    </button>
+                </li>
+            </ol>
+        </nav>
+
+        <!-- PASO 1 -->
+        <section id="step-1" class="step-panel bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col">
+            <div class="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-base font-semibold text-slate-800">1. Introduce o sube el archivo JSON</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Arrastra un archivo <code class="font-mono text-sage-700">.json</code> desde tu equipo o usa los datos de ejemplo para detectar columnas.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="btnLoadSample" type="button" class="px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1.5">
+                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-sage-600"></i>
+                        Ejemplo Tienda
+                    </button>
+                    <button id="btnFetchDummy" type="button" class="px-3 py-2 text-xs font-medium rounded-xl bg-sage-50 hover:bg-sage-100/70 text-sage-700 border border-sage-200/70 transition flex items-center gap-1.5">
+                        <i data-lucide="cloud-download" class="w-3.5 h-3.5"></i>
+                        DummyJSON API
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-5 sm:p-6 space-y-4">
+                <div id="jsonDropZone" class="group relative rounded-xl border-2 border-dashed border-slate-200 hover:border-sage-600/60 bg-slate-50/40 hover:bg-sage-50/30 p-4 transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <input id="jsonFileInput" type="file" accept=".json,application/json" class="hidden">
+                    <div class="flex items-center gap-3 text-center sm:text-left">
+                        <div class="w-10 h-10 rounded-xl bg-white border border-slate-200/80 text-sage-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                            <i data-lucide="file-up" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs font-semibold text-slate-700">
+                                Arrastra tu archivo <span class="font-mono text-sage-700">.json</span> aquí o haz clic para seleccionarlo
+                            </p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Soporta arreglos raíz <code class="font-mono">[...]</code> o contenedores como <code class="font-mono">{ "products": [...] }</code></p>
+                        </div>
+                    </div>
+                    <button id="btnSelectFile" type="button" class="px-3.5 py-2 text-xs font-medium rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm transition shrink-0">
+                        Subir archivo .json
+                    </button>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden focus-within:border-sage-600 focus-within:ring-2 focus-within:ring-sage-600/15 transition">
+                    <div class="px-4 py-2 bg-slate-100/70 border-b border-slate-200/80 flex items-center justify-between text-xs">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="file-code-2" class="w-3.5 h-3.5 text-slate-400"></i>
+                            <span id="loadedFileNameBadge" class="font-mono text-slate-600 font-medium">productos_ejemplo.json</span>
+                        </div>
+                        <button id="btnFormatJson" type="button" class="text-sage-700 hover:text-sage-800 font-medium">
+                            Ordenar formato
+                        </button>
+                    </div>
+                    <textarea id="jsonInput" spellcheck="false" rows="11" class="w-full p-4 font-mono text-xs leading-relaxed bg-transparent text-slate-700 focus:outline-none resize-y" placeholder="Pega aquí tu arreglo JSON [...] o sube un archivo arriba"></textarea>
+                </div>
+
+                <div id="jsonSummaryBar" class="p-3.5 rounded-xl bg-sage-50/70 border border-sage-200/70 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center gap-2.5 text-sage-800">
+                        <i data-lucide="check-circle" class="w-4 h-4 text-sage-600 shrink-0"></i>
+                        <span id="jsonStatusText"><strong>0 registros</strong> detectados.</span>
+                    </div>
+                    <div id="detectedFieldsPills" class="flex flex-wrap gap-1.5"></div>
+                </div>
+            </div>
+
+            <div class="px-5 sm:px-6 py-4 bg-slate-50/70 border-t border-slate-100 flex items-center justify-end">
+                <button type="button" data-go-step="2" class="px-5 py-2.5 rounded-xl bg-sage-700 hover:bg-sage-800 text-white text-sm font-medium shadow-sm transition flex items-center gap-2">
+                    <span>Siguiente: Configurar Tabla e Índice</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- PASO 2 -->
+        <section id="step-2" class="step-panel hidden bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col">
+            <div class="p-5 sm:p-6 border-b border-slate-100 space-y-4">
+                <div>
+                    <h2 class="text-base font-semibold text-slate-800">2. Configura columnas y optimización de consultas</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Define qué campos filtrarán (<code class="text-sage-700 font-mono">WHERE =</code>) y cuáles ordenarán (<code class="text-amber-700 font-mono">ORDER BY</code>) tu paginación.</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                    <div>
+                        <label for="tableName" class="block text-xs font-medium text-slate-600 mb-1.5">Nombre de la tabla</label>
+                        <input id="tableName" type="text" value="productos" class="w-full px-3.5 py-2 text-sm font-mono rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-sage-600 focus:ring-2 focus:ring-sage-600/15 outline-none transition">
+                    </div>
+                    <div>
+                        <label for="sqlDialect" class="block text-xs font-medium text-slate-600 mb-1.5">Motor de base de datos</label>
+                        <select id="sqlDialect" class="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-sage-600 focus:ring-2 focus:ring-sage-600/15 outline-none transition">
+                            <option value="postgresql">PostgreSQL</option>
+                            <option value="mysql">MySQL / MariaDB</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="pageSize" class="block text-xs font-medium text-slate-600 mb-1.5">Tamaño de página (LIMIT)</label>
+                        <input id="pageSize" type="number" min="1" max="1000" value="20" class="w-full px-3.5 py-2 text-sm font-mono rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-sage-600 focus:ring-2 focus:ring-sage-600/15 outline-none transition">
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-5 sm:px-6 py-4 bg-sage-50/60 border-b border-slate-200/70">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-sage-800 flex items-center gap-1.5">
+                        <i data-lucide="zap" class="w-3.5 h-3.5 text-sage-600"></i>
+                        Vista previa del Índice Compuesto (Regla E-R-S)
+                    </span>
+                    <span class="text-[11px] text-slate-500">1º Igualdad → 2º Ordenamiento → 3º Selectividad</span>
+                </div>
+                <div id="liveIndexPreview" class="flex flex-wrap items-center gap-2 min-h-[32px]"></div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-200/80 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <th class="py-3 pl-5 pr-2 w-10">Usar</th>
+                            <th class="py-3 px-3">Columna SQL</th>
+                            <th class="py-3 px-3">Tipo de Dato</th>
+                            <th class="py-3 px-3 text-center">Filtrar (WHERE =)</th>
+                            <th class="py-3 pl-3 pr-5">Ordenar (ORDER BY)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="columnsTableBody" class="divide-y divide-slate-100 text-sm"></tbody>
+                </table>
+            </div>
+
+            <div class="px-5 sm:px-6 py-4 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between gap-3">
+                <button type="button" data-go-step="1" class="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-sm font-medium transition flex items-center gap-2">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                    <span>Anterior</span>
+                </button>
+                <button type="button" data-go-step="3" class="px-5 py-2.5 rounded-xl bg-sage-700 hover:bg-sage-800 text-white text-sm font-medium shadow-sm transition flex items-center gap-2">
+                    <span>Siguiente: Ver SQL Generado</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- PASO 3 -->
+        <section id="step-3" class="step-panel hidden bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col">
+            <div class="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-base font-semibold text-slate-800">3. Scripts SQL y exportación para Supabase</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Ejecuta cada bloque en el SQL Editor o exporta a CSV para subirlo al Table Editor.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                    <button id="btnExportCsv" type="button" class="px-3.5 py-2 text-xs font-medium rounded-xl bg-sage-50 hover:bg-sage-100/80 text-sage-800 border border-sage-200/80 transition flex items-center gap-1.5" title="Ideal para importar en el Table Editor de Supabase">
+                        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-sage-700"></i>
+                        Exportar .csv
+                    </button>
+                    <button id="btnDownloadSql" type="button" class="px-3.5 py-2 text-xs font-medium rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1.5">
+                        <i data-lucide="download" class="w-3.5 h-3.5 text-sage-600"></i>
+                        Descargar .sql
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-5 sm:px-6 pt-4 bg-slate-50/50 border-b border-slate-200/80 flex flex-wrap gap-2">
+                <button type="button" data-sql-tab="ddl" class="sql-subtab px-4 py-2.5 text-xs font-semibold rounded-t-xl border-t border-x transition-all">
+                    1. Estructura + Índice
+                </button>
+                <button type="button" data-sql-tab="dml" class="sql-subtab px-4 py-2.5 text-xs font-semibold rounded-t-xl border-t border-x transition-all">
+                    2. INSERT (jsonb / clásico)
+                </button>
+                <button type="button" data-sql-tab="query" class="sql-subtab px-4 py-2.5 text-xs font-semibold rounded-t-xl border-t border-x transition-all">
+                    3. Paginación (OFFSET y Cursor)
+                </button>
+            </div>
+
+            <div class="p-5 sm:p-6 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-sage-50/60 border border-sage-200/70 px-4 py-3 rounded-xl">
+                    <p id="tabOneLineHelp" class="text-xs text-slate-700 leading-relaxed"></p>
+                    <button id="btnCopySql" type="button" class="px-3.5 py-1.5 rounded-lg bg-sage-700 hover:bg-sage-800 text-white text-xs font-medium shadow-sm transition flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                        <span>Copiar SQL</span>
+                    </button>
+                </div>
+
+                <div class="rounded-2xl bg-nord-bg border border-slate-700/60 shadow-inner overflow-hidden">
+                    <div class="px-4 py-2.5 bg-nord-header border-b border-slate-700/50 flex items-center justify-between">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+                            <span class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+                            <span class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+                        </div>
+                        <span id="codeFileName" class="font-mono text-[11px] text-slate-400">01_estructura_e_indice.sql</span>
+                    </div>
+                    <pre id="sqlCodeDisplay" class="p-5 font-mono text-xs sm:text-[13px] leading-relaxed text-nord-text overflow-x-auto max-h-[460px]"></pre>
+                </div>
+            </div>
+
+            <div class="px-5 sm:px-6 py-4 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between">
+                <button type="button" data-go-step="2" class="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-sm font-medium transition flex items-center gap-2">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                    <span>Anterior: Ajustar Columnas</span>
+                </button>
+                <span class="text-xs text-slate-400 hidden sm:inline">Listo para ejecutar en tu base de datos</span>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // =========================================================================
+        // 1. DATOS DE EJEMPLO PRECARGADOS
+        // =========================================================================
+        const DEFAULT_PRODUCTS_JSON = [
+            { id: 101, category: "perifericos", status: "activo", title: "Teclado Mecánico Inalámbrico Keychron K2", price: 89.99, rating: 4.8, created_at: "2026-11-10 09:15:00" },
+            { id: 102, category: "monitores",   status: "activo", title: "Monitor Ultrawide 34\" Curvo 144Hz",          price: 429.5, rating: 4.9, created_at: "2026-11-11 11:30:00" },
+            { id: 103, category: "perifericos", status: "activo", title: "Mouse Ergonómico Vertical MX",               price: 64.0,  rating: 4.6, created_at: "2026-11-12 14:20:00" },
+            { id: 104, category: "audio",       status: "activo", title: "Audífonos Studio Cancelación de Ruido",      price: 199.99, rating: 4.7, created_at: "2026-11-13 16:45:00" },
+            { id: 105, category: "perifericos", status: "activo", title: "Webcam 4K Autoenfoque con Micrófono Dual",   price: 119.0, rating: 4.5, created_at: "2026-11-14 10:05:00" }
+        ];
+
+        // =========================================================================
+        // 2. ESTADO CENTRAL
+        // =========================================================================
+        const state = {
+            currentStep: 1,
+            activeSqlTab: 'ddl',
+            fileName: 'productos_ejemplo.json',
+            tableName: 'productos',
+            dialect: 'postgresql',
+            pageSize: 20,
+            records: [],
+            columns: [],
+            sqlBlocks: {
+                ddl:   { raw: '', filename: '01_estructura_e_indice.sql',  help: 'Ejecuta este bloque una sola vez para crear la tabla y el índice compuesto E-R-S (Igualdad → Ordenamiento → Selectividad).' },
+                dml:   { raw: '', filename: '02_insertar_datos.sql',       help: 'Dos formas de cargar los datos: jsonb_to_recordset (nativo de PostgreSQL/Supabase) e INSERT INTO clásico.' },
+                query: { raw: '', filename: '03_consulta_paginacion.sql',  help: 'Consulta con LIMIT/OFFSET y paginación por cursor (Keyset), que evita el coste creciente de OFFSET.' }
+            }
+        };
+
+        // =========================================================================
+        // 3. REFERENCIAS AL DOM
+        // =========================================================================
+        const jsonInput          = document.getElementById('jsonInput');
+        const jsonDropZone       = document.getElementById('jsonDropZone');
+        const jsonFileInput      = document.getElementById('jsonFileInput');
+        const loadedFileNameBadge = document.getElementById('loadedFileNameBadge');
+        const columnsTableBody   = document.getElementById('columnsTableBody');
+        const liveIndexPreview   = document.getElementById('liveIndexPreview');
+        const jsonStatusText     = document.getElementById('jsonStatusText');
+        const detectedFieldsPills = document.getElementById('detectedFieldsPills');
+        const sqlCodeDisplay     = document.getElementById('sqlCodeDisplay');
+        const codeFileName       = document.getElementById('codeFileName');
+        const tabOneLineHelp     = document.getElementById('tabOneLineHelp');
+        const toastEl            = document.getElementById('toast');
+        const toastMessageEl     = document.getElementById('toastMessage');
+
+        // =========================================================================
+        // 4. UTILIDADES
+        // =========================================================================
+        let toastTimer = null;
+        function showToast(message) {
+            toastMessageEl.textContent = message;
+            toastEl.classList.add('toast-show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toastEl.classList.remove('toast-show'), 2800);
+        }
+
+        function refreshIcons() {
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+        // Convierte cualquier texto en un identificador SQL seguro (snake_case)
+        function sanitizeSqlIdentifier(value) {
+            let id = String(value == null ? '' : value)
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+                .toLowerCase()
+                .replace(/[^a-z0-9_]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .replace(/_{2,}/g, '_');
+            if (!id) id = 'campo';
+            if (/^[0-9]/.test(id)) id = 'c_' + id;
+            return id;
+        }
+
+        // Identificadores que no deben ir entre comillas en PostgreSQL/MySQL
+        const SQL_RESERVED = new Set(['id','category','status','title','price','rating','created_at','user','order','group','table','select','from','where','limit','offset','desc','asc','key','value','date','timestamp','text','type','name','default','primary','references','index','check','unique','join','left','right','inner','outer','on','and','or','not','null','true','false','case','when','then','else','end','as','distinct','having','union','all','insert','update','delete','into','values','set']);
+
+        function quoteIdent(name) {
+            if (SQL_RESERVED.has(name)) return name;
+            if (/^[a-z_][a-z0-9_]*$/.test(name)) return name;
+            return '"' + String(name).replace(/"/g, '""') + '"';
+        }
+
+        // Escapa un valor JS como literal SQL
+        function escapeSqlLiteral(value, sqlType) {
+            if (value === null || value === undefined || value === '') {
+                return (sqlType === 'TEXT' || sqlType === 'TIMESTAMP' || sqlType === 'JSONB') ? 'NULL' : 'NULL';
+            }
+            if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+            if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+            if (typeof value === 'object') {
+                const json = JSON.stringify(value).replace(/'/g, "''");
+                return `'${json}'::jsonb`;
+            }
+            const str = String(value).replace(/'/g, "''");
+            return `'${str}'`;
+        }
+
+        // Escapa texto para HTML (evita inyección en la vista previa)
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+        }
+
+        // =========================================================================
+        // 5. INFERENCIA DE TIPOS
+        // =========================================================================
+        const DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+        function detectValueType(value) {
+            if (value === null || value === undefined) return 'null';
+            if (typeof value === 'boolean') return 'boolean';
+            if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'number';
+            if (Array.isArray(value)) return 'array';
+            if (typeof value === 'object') return 'object';
+            if (typeof value === 'string') {
+                const t = value.trim();
+                if (t !== '' && DATE_RE.test(t)) return 'timestamp';
+                return 'string';
+            }
+            return 'string';
+        }
+
+        const TYPE_PRIORITY = { null: 0, boolean: 1, integer: 2, number: 3, timestamp: 4, string: 5, array: 6, object: 7 };
+
+        // Fusiona dos tipos inferidos en el tipo "más amplio" que los contiene
+        function mergeTypes(a, b) {
+            if (a === b) return a;
+            if (a === 'null') return b;
+            if (b === 'null') return a;
+            const set = new Set([a, b]);
+            if (set.has('object')) return 'object';
+            if (set.has('array')) return 'array';
+            if (set.has('string')) return 'string';
+            if (set.has('timestamp')) return set.has('number') ? 'string' : 'timestamp';
+            if (set.has('number')) return 'number';
+            if (set.has('integer')) return 'integer';
+            if (set.has('boolean')) return 'boolean';
+            return 'string';
+        }
+
+        function inferColumnType(records, key) {
+            let type = 'null';
+            let hasValue = false;
+            for (const rec of records) {
+                if (!rec || typeof rec !== 'object') continue;
+                if (!(key in rec)) continue;
+                const detected = detectValueType(rec[key]);
+                if (detected !== 'null') hasValue = true;
+                type = mergeTypes(type, detected);
+            }
+            return hasValue ? type : 'string';
+        }
+
+        function sqlTypeFor(inferred, dialect) {
+            const pg = {
+                integer: 'INTEGER',
+                number: 'NUMERIC(12,2)',
+                boolean: 'BOOLEAN',
+                timestamp: 'TIMESTAMPTZ',
+                string: 'TEXT',
+                array: 'JSONB',
+                object: 'JSONB'
+            };
+            // MySQL exige una longitud de clave para indexar tipos TEXT/BLOB,
+            // por eso los textos usan VARCHAR(255): son indexables y pueden ser PK.
+            const my = {
+                integer: 'INT',
+                number: 'DECIMAL(12,2)',
+                boolean: 'TINYINT(1)',
+                timestamp: 'DATETIME',
+                string: 'VARCHAR(255)',
+                array: 'JSON',
+                object: 'JSON'
+            };
+            return (dialect === 'mysql' ? my : pg)[inferred] || 'TEXT';
+        }
+
+        const PRETTY_TYPE = {
+            integer: 'entero', number: 'decimal', boolean: 'booleano', timestamp: 'fecha/hora',
+            string: 'texto', array: 'arreglo (JSON)', object: 'objeto (JSON)'
+        };
+
+        // =========================================================================
+        // 6. PARSEO DEL JSON DE ORIGEN (arreglos planos y objetos contenedores)
+        // =========================================================================
+        function extractRecords(parsed) {
+            if (Array.isArray(parsed)) return parsed;
+
+            if (parsed && typeof parsed === 'object') {
+                // Preferimos la primera propiedad cuyo valor sea un arreglo
+                for (const key of Object.keys(parsed)) {
+                    if (Array.isArray(parsed[key])) return parsed[key];
+                }
+                // Si el objeto tiene una propiedad anidada que a su vez contiene arreglos
+                for (const key of Object.keys(parsed)) {
+                    const val = parsed[key];
+                    if (val && typeof val === 'object' && !Array.isArray(val)) {
+                        for (const inner of Object.keys(val)) {
+                            if (Array.isArray(val[inner])) return val[inner];
+                        }
+                    }
+                }
+                // Objeto único: lo tratamos como un solo registro
+                return [parsed];
+            }
+            return [];
+        }
+
+        function collectKeys(records) {
+            const keys = [];
+            const seen = new Set();
+            for (const rec of records) {
+                if (!rec || typeof rec !== 'object' || Array.isArray(rec)) continue;
+                for (const k of Object.keys(rec)) {
+                    if (!seen.has(k)) { seen.add(k); keys.push(k); }
+                }
+            }
+            return keys;
+        }
+
+        function resetColumnSelection() {
+            state.columns = [];
+        }
+
+        function buildColumns(keys) {
+            const previous = new Map(state.columns.map(c => [c.jsonKey, c]));
+            const usedNames = new Set();
+
+            state.columns = keys.map((key, index) => {
+                let sqlName = sanitizeSqlIdentifier(key);
+                let candidate = sqlName;
+                let n = 2;
+                while (usedNames.has(candidate)) candidate = sqlName + '_' + (n++);
+                sqlName = candidate;
+                usedNames.add(sqlName);
+
+                const inferred = inferColumnType(state.records, key);
+                const prev = previous.get(key);
+
+                const isIdLike = /^(id|.*_id)$/.test(sqlName);
+                const isDateLike = inferred === 'timestamp';
+                const isNumeric = inferred === 'integer' || inferred === 'number';
+
+                return {
+                    jsonKey: key,
+                    sqlName,
+                    inferred,
+                    sqlType: sqlTypeFor(inferred, state.dialect),
+                    included: prev ? prev.included : true,
+                    isPk: prev ? prev.isPk : (index === 0 && isIdLike),
+                    isWhere: prev ? prev.isWhere : false,
+                    orderDir: prev ? prev.orderDir : null,
+                    _suggestWhere: isIdLike,
+                    _suggestOrder: isDateLike,
+                    _isNumeric: isNumeric
+                };
+            });
+
+            // Preselección de defaults solo cuando aún no había nada configurado
+            if (previous.size === 0) applySmartDefaults();
+        }
+
+        // Selecciona por defecto columnas de igualdad y ordenamiento razonables
+        function applySmartDefaults() {
+            const cols = state.columns;
+            const pk = cols.find(c => c.isPk);
+            const dateCol = cols.find(c => c.inferred === 'timestamp');
+            const statusLike = cols.find(c => /status|estado|state|category|categoria|type|tipo/.test(c.sqlName));
+
+            if (statusLike) statusLike.isWhere = true;
+            if (dateCol) dateCol.orderDir = 'DESC';
+
+            // Si hay columna id numérica, actúa como filtro de igualdad sugerido
+            if (pk) { pk.isWhere = false; }
+        }
+
+        // =========================================================================
+        // 7. LECTURA DEL JSON Y REFRESCO GENERAL
+        // =========================================================================
+        function parseJsonSource(raw, silent) {
+            if (!raw || !raw.trim()) {
+                state.records = [];
+                state.columns = [];
+                renderColumnsTable();
+                renderJsonSummary(false);
+                renderLiveIndexPreview();
+                generateAllSql();
+                return;
+            }
+
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (err) {
+                if (!silent) renderJsonSummary('error', err.message);
+                return;
+            }
+
+            const records = extractRecords(parsed);
+            const objectRecords = records.filter(r => r && typeof r === 'object' && !Array.isArray(r));
+
+            if (objectRecords.length === 0) {
+                state.records = [];
+                state.columns = [];
+                renderColumnsTable();
+                renderJsonSummary('empty');
+                renderLiveIndexPreview();
+                generateAllSql();
+                return;
+            }
+
+            state.records = objectRecords;
+            const keys = collectKeys(objectRecords);
+            buildColumns(keys);
+
+            renderColumnsTable();
+            renderJsonSummary(true);
+            renderLiveIndexPreview();
+            generateAllSql();
+        }
+
+        function renderJsonSummary(status, detail) {
+            if (status === 'error') {
+                jsonStatusText.innerHTML = `<span class="text-rose-700"><strong>JSON inválido:</strong> ${escapeHtml(detail || 'revisa la sintaxis')}</span>`;
+                detectedFieldsPills.innerHTML = '';
+                return;
+            }
+            if (status === 'empty' || state.records.length === 0) {
+                jsonStatusText.innerHTML = '<span class="text-slate-500">Aún no hay registros detectados. Pega un JSON o sube un archivo.</span>';
+                detectedFieldsPills.innerHTML = '';
+                return;
+            }
+
+            const fieldCount = state.columns.length;
+            jsonStatusText.innerHTML = `<strong>${state.records.length} registro${state.records.length === 1 ? '' : 's'}</strong> y <strong>${fieldCount} campo${fieldCount === 1 ? '' : 's'}</strong> detectados correctamente.`;
+
+            detectedFieldsPills.innerHTML = state.columns.slice(0, 12).map(c => {
+                const color = c.inferred === 'timestamp' ? 'bg-amber-100 text-amber-800 border-amber-200'
+                    : c._isNumeric ? 'bg-sky-100 text-sky-800 border-sky-200'
+                    : c.inferred === 'boolean' ? 'bg-violet-100 text-violet-800 border-violet-200'
+                    : 'bg-slate-100 text-slate-700 border-slate-200';
+                return `<span class="px-2 py-0.5 rounded-md border ${color} font-mono text-[10px]">${escapeHtml(c.sqlName)} <span class="opacity-60">${escapeHtml(PRETTY_TYPE[c.inferred] || c.inferred)}</span></span>`;
+            }).join('') + (state.columns.length > 12 ? `<span class="text-[10px] text-slate-400 self-center">+${state.columns.length - 12} más</span>` : '');
+        }
+
+        // =========================================================================
+        // 8. RENDER DE LA TABLA DE COLUMNAS (PASO 2)
+        // =========================================================================
+        function renderColumnsTable() {
+            if (state.columns.length === 0) {
+                columnsTableBody.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-sm text-slate-400">
+                    Carga un JSON en el paso 1 para detectar y mapear las columnas automáticamente.
+                </td></tr>`;
+                return;
+            }
+
+            columnsTableBody.innerHTML = state.columns.map((col, i) => {
+                const typeOptions = ['integer','number','boolean','timestamp','string','array','object']
+                    .map(t => `<option value="${t}" ${col.inferred === t ? 'selected' : ''}>${PRETTY_TYPE[t]}</option>`).join('');
+
+                const orderButtons = ['ASC','DESC'].map(dir => {
+                    const active = col.orderDir === dir;
+                    const activeCls = dir === 'DESC'
+                        ? 'bg-amber-500 text-white border-amber-500'
+                        : 'bg-sage-600 text-white border-sage-600';
+                    const idleCls = 'bg-white text-slate-500 border-slate-200 hover:border-slate-300';
+                    return `<button type="button" data-order-col="${i}" data-order-dir="${dir}"
+                        class="px-2 py-1 rounded-md border text-[10px] font-semibold transition ${active ? activeCls : idleCls}">${dir}</button>`;
+                }).join(' ');
+
+                const pkBadge = col.isPk
+                    ? `<span class="ml-1.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sage-100 text-sage-800 border border-sage-200">PK</span>`
+                    : '';
+
+                return `
+                <tr class="${col.included ? '' : 'opacity-50'}">
+                    <td class="py-3 pl-5 pr-2">
+                        <input type="checkbox" data-include-col="${i}" ${col.included ? 'checked' : ''}
+                            class="w-4 h-4 rounded border-slate-300 text-sage-700 focus:ring-sage-600/30 cursor-pointer">
+                    </td>
+                    <td class="py-3 px-3">
+                        <div class="flex items-center flex-wrap gap-1">
+                            <input type="text" data-rename-col="${i}" value="${escapeHtml(col.sqlName)}"
+                                class="w-32 sm:w-40 px-2 py-1 font-mono text-xs rounded-md border border-slate-200 bg-slate-50/60 focus:bg-white focus:border-sage-600 outline-none transition">
+                            ${pkBadge}
+                        </div>
+                        <p class="text-[10px] text-slate-400 font-mono mt-1" title="Llave original del JSON">← ${escapeHtml(col.jsonKey)}</p>
+                    </td>
+                    <td class="py-3 px-3">
+                        <select data-type-col="${i}" class="px-2 py-1 text-xs rounded-md border border-slate-200 bg-slate-50/60 focus:bg-white focus:border-sage-600 outline-none transition">
+                            ${typeOptions}
+                        </select>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                        <input type="checkbox" data-where-col="${i}" ${col.isWhere ? 'checked' : ''}
+                            class="w-4 h-4 rounded border-slate-300 text-sage-700 focus:ring-sage-600/30 cursor-pointer">
+                    </td>
+                    <td class="py-3 pl-3 pr-5">
+                        <div class="flex items-center gap-1.5">${orderButtons}</div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        // =========================================================================
+        // 9. VISTA PREVIA DEL ÍNDICE COMPUESTO (REGLA E-R-S)
+        // =========================================================================
+        function getIndexPlan() {
+            const active = state.columns.filter(c => c.included);
+            const equality = active.filter(c => c.isWhere);
+            const ordered = active.filter(c => c.orderDir);
+            return { active, equality, ordered };
+        }
+
+        function renderLiveIndexPreview() {
+            const { equality, ordered } = getIndexPlan();
+
+            if (equality.length === 0 && ordered.length === 0) {
+                liveIndexPreview.innerHTML = `<span class="text-[11px] text-slate-400 italic">Marca al menos una columna como filtro (WHERE) o elige un ordenamiento para construir el índice compuesto.</span>`;
+                return;
+            }
+
+            const chips = [];
+            equality.forEach(c => chips.push(
+                `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sage-100 border border-sage-200 text-[11px] font-mono text-sage-800">
+                    <span class="w-1.5 h-1.5 rounded-full bg-sage-600"></span>${escapeHtml(c.sqlName)}
+                    <span class="text-[9px] uppercase tracking-wide text-sage-600/80">Igualdad</span>
+                </span>`));
+            ordered.forEach(c => chips.push(
+                `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 border border-amber-200 text-[11px] font-mono text-amber-800">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>${escapeHtml(c.sqlName)} ${c.orderDir}
+                    <span class="text-[9px] uppercase tracking-wide text-amber-600/80">Orden</span>
+                </span>`));
+
+            liveIndexPreview.innerHTML = chips.join('<span class="text-slate-300 text-xs">→</span>');
+        }
+
+        // =========================================================================
+        // 10. NAVEGACIÓN POR PASOS Y PESTAÑAS SQL
+        // =========================================================================
+        function goToStep(step) {
+            state.currentStep = step;
+            document.querySelectorAll('.step-panel').forEach(panel => {
+                panel.classList.toggle('hidden', panel.id !== 'step-' + step);
+            });
+            document.querySelectorAll('.step-nav-btn').forEach(btn => {
+                btn.classList.toggle('is-active', Number(btn.dataset.stepBtn) === step);
+            });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function setActiveSqlTab(tab) {
+            state.activeSqlTab = tab;
+            document.querySelectorAll('.sql-subtab').forEach(btn => {
+                btn.classList.toggle('is-active', btn.dataset.sqlTab === tab);
+            });
+            renderSqlTab();
+        }
+
+        function renderSqlTab() {
+            const block = state.sqlBlocks[state.activeSqlTab];
+            codeFileName.textContent = block.filename;
+            tabOneLineHelp.textContent = block.help;
+            sqlCodeDisplay.innerHTML = highlightSql(block.raw || '-- Sin datos todavía.');
+            refreshIcons();
+        }
+
+        // =========================================================================
+        // 11. RESALTADO DE SINTAXIS SQL (estilo Nord)
+        // =========================================================================
+        function highlightSql(code) {
+            let html = escapeHtml(code);
+            // Comentarios primero, para que su contenido no sea re-resaltado
+            html = html.replace(/(--[^\n]*)/g, '<span class="text-slate-500 italic">$1</span>');
+            html = html.replace(/('(?:[^'\\]|\\.|'')*')/g, '<span class="text-nord-mint">$1</span>');
+            const keywords = /\b(CREATE TABLE|CREATE INDEX|PRIMARY KEY|NOT NULL|DEFAULT|INSERT INTO|SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|LIMIT|OFFSET|ASC|DESC|AS|ON|USING|jsonb_to_recordset|JSON_TABLE|PATH|COLUMNS|EXPLAIN ANALYZE|EXPLAIN|IF NOT EXISTS|UNIQUE|CONCURRENTLY|WITH|ROW_NUMBER|OVER|PARTITION BY|IN|IS NULL|IS NOT NULL)\b/g;
+            html = html.replace(keywords, '<span class="text-nord-sky font-medium">$1</span>');
+            const types = /\b(INTEGER|INT|SERIAL|BIGSERIAL|AUTO_INCREMENT|VARCHAR\(\d+\)|VARCHAR|TEXT|DECIMAL\(\d+,\d+\)|NUMERIC\(\d+,\d+\)|NUMERIC|TIMESTAMPTZ|TIMESTAMP|DATETIME|BOOLEAN|TINYINT\(\d+\)|JSONB|JSON|TRUE|FALSE|NULL)\b/g;
+            html = html.replace(types, '<span class="text-nord-amber">$1</span>');
+            return html;
+        }
+
+        // =========================================================================
+        // 12. GENERACIÓN DE SQL (DDL + ÍNDICE E-R-S, DML, CONSULTAS)
+        // =========================================================================
+        function generateAllSql() {
+            generateDdl();
+            generateDml();
+            generateQuery();
+            renderSqlTab();
+        }
+
+        function currentTable() {
+            return sanitizeSqlIdentifier(state.tableName || 'productos');
+        }
+
+        function activeColumns() {
+            return state.columns.filter(c => c.included);
+        }
+
+        function pkColumn() {
+            return state.columns.find(c => c.included && c.isPk) || null;
+        }
+
+        // -------------------------------------------------------------------------
+        // 12.1 DDL: tabla + índice compuesto E-R-S
+        // -------------------------------------------------------------------------
+        function generateDdl() {
+            const dialect = state.dialect;
+            const table = currentTable();
+            const cols = activeColumns();
+            const pk = pkColumn();
+
+            const lines = [];
+            lines.push(`-- ============================================================================`);
+            lines.push(`-- 01. ESTRUCTURA DE TABLA + ÍNDICE COMPUESTO (E-R-S)`);
+            lines.push(`-- Motor: ${dialect === 'mysql' ? 'MySQL / MariaDB' : 'PostgreSQL'}`);
+            lines.push(`-- ============================================================================`);
+            lines.push('');
+            lines.push(`CREATE TABLE IF NOT EXISTS ${quoteIdent(table)} (`);
+
+            const defs = cols.map(c => {
+                let def = `    ${quoteIdent(c.sqlName)} ${c.sqlType}`;
+                if (pk && c.jsonKey === pk.jsonKey) def += ' PRIMARY KEY';
+                return def;
+            });
+
+            // Si el JSON no trae columna identificadora, se añade una clave sintética
+            if (!pk) {
+                defs.unshift(dialect === 'mysql'
+                    ? '    id BIGINT AUTO_INCREMENT PRIMARY KEY'
+                    : '    id BIGSERIAL PRIMARY KEY');
+            }
+
+            lines.push(defs.join(',\n'));
+            lines.push(');');
+            lines.push('');
+
+            // ---- Índice compuesto según la regla E-R-S ----
+            const equality = cols.filter(c => c.isWhere);
+            const ordered = cols.filter(c => c.orderDir);
+            const indexCols = [];
+
+            equality.forEach(c => indexCols.push(`${quoteIdent(c.sqlName)}`));
+            ordered.forEach(c => indexCols.push(`${quoteIdent(c.sqlName)} ${c.orderDir}`));
+
+            // Selectividad: la PK al final como desempate para Keyset Pagination.
+            // Solo tiene sentido si ya hay al menos una columna de igualdad u ordenamiento;
+            // un índice de una sola columna que ya es PK sería redundante.
+            if (pk && indexCols.length > 0 && !indexCols.some(ic => ic.startsWith(quoteIdent(pk.sqlName)))) {
+                indexCols.push(`${quoteIdent(pk.sqlName)}`);
+            }
+
+            const idxName = buildIndexName(table, equality, ordered);
+
+            lines.push(`-- Índice compuesto optimizado (regla E-R-S:`);
+            lines.push(`--   1º Igualdad del WHERE  ->  ${equality.length ? equality.map(c => c.sqlName).join(', ') : '(ninguna)'}`);
+            lines.push(`--   2º Ordenamiento        ->  ${ordered.length ? ordered.map(c => c.sqlName + ' ' + c.orderDir).join(', ') : '(ninguno)'}`);
+            lines.push(`--   3º Selectividad/único  ->  ${pk ? pk.sqlName : '(sin PK explícita)'}`);
+            lines.push(`-- Las columnas de igualdad van primero para que el motor recorra el índice`);
+            lines.push(`-- sin necesidad de un ordenamiento posterior (index scan ordenado).`);
+
+            if (indexCols.length === 0) {
+                lines.push(`-- Sin columnas de filtro ni ordenamiento seleccionadas: no se genera índice compuesto.`);
+            } else {
+                lines.push(`CREATE INDEX IF NOT EXISTS ${quoteIdent(idxName)}`);
+                lines.push(`    ON ${quoteIdent(table)} (${indexCols.join(', ')});`);
+            }
+
+            lines.push('');
+            lines.push(`-- Verificación del plan de ejecución (opcional):`);
+            const explainWhere = equality.length ? ' WHERE ' + equality.map(c => `${c.sqlName} = ${escapeSqlLiteral(exampleValue(c), c.sqlType)}`).join(' AND ') : '';
+            const explainOrder = ordered.length ? ' ORDER BY ' + ordered.map(c => `${c.sqlName} ${c.orderDir}`).join(', ') : '';
+            lines.push(`-- EXPLAIN ANALYZE SELECT * FROM ${quoteIdent(table)}${explainWhere}${explainOrder} LIMIT ${state.pageSize};`);
+
+            state.sqlBlocks.ddl.raw = lines.join('\n');
+        }
+
+        function buildIndexName(table, equality, ordered) {
+            const parts = [table, ...equality.map(c => c.sqlName), ...ordered.map(c => c.sqlName + '_' + c.orderDir.toLowerCase())];
+            let name = 'idx_' + parts.join('_');
+            name = name.replace(/[^a-z0-9_]/gi, '_').replace(/_{2,}/g, '_');
+            if (name.length > 60) name = name.slice(0, 60).replace(/_$/, '');
+            return name;
+        }
+
+        // -------------------------------------------------------------------------
+        // 12.2 DML: carga masiva (jsonb_to_recordset / JSON_TABLE) + INSERT clásico
+        // -------------------------------------------------------------------------
+        function generateDml() {
+            const dialect = state.dialect;
+            const table = currentTable();
+            const cols = activeColumns();
+            const pk = pkColumn();
+            const insertCols = cols.slice();
+
+            const lines = [];
+            lines.push(`-- ============================================================================`);
+            lines.push(`-- 02. CARGA MASIVA DE DATOS (${state.records.length} registro${state.records.length === 1 ? '' : 's'})`);
+            lines.push(`-- ============================================================================`);
+            lines.push('');
+
+            if (cols.length === 0 || state.records.length === 0) {
+                lines.push('-- No hay columnas activas o registros para insertar.');
+                state.sqlBlocks.dml.raw = lines.join('\n');
+                return;
+            }
+
+            const colList = insertCols.map(c => quoteIdent(c.sqlName)).join(', ');
+
+            // ---- OPCIÓN A: carga nativa desde JSON ----
+            if (dialect === 'postgresql') {
+                const mapped = state.records.map(rec => {
+                    const obj = {};
+                    insertCols.forEach(c => { obj[c.sqlName] = rec[c.jsonKey] !== undefined ? rec[c.jsonKey] : null; });
+                    return obj;
+                });
+                const jsonLiteral = JSON.stringify(mapped, null, 2).replace(/'/g, "''");
+                const schema = insertCols.map(c => `    ${c.sqlName} ${c.sqlType}`).join(',\n');
+
+                lines.push(`-- OPCIÓN A (Recomendada para Supabase / PostgreSQL): una sola sentencia, sin`);
+                lines.push(`-- construir un VALUES gigante. Ideal para cientos o miles de filas.`);
+                lines.push(`INSERT INTO ${quoteIdent(table)} (${colList})`);
+                lines.push(`SELECT ${insertCols.map(c => c.sqlName).join(', ')}`);
+                lines.push(`FROM jsonb_to_recordset(${pgJsonLiteral(jsonLiteral)}::jsonb) AS x (`);
+                lines.push(schema);
+                lines.push(`);`);
+            } else {
+                const mapped = state.records.map(rec => {
+                    const obj = {};
+                    insertCols.forEach(c => { obj[c.sqlName] = rec[c.jsonKey] !== undefined ? rec[c.jsonKey] : null; });
+                    return obj;
+                });
+                const jsonLiteral = JSON.stringify(mapped).replace(/'/g, "''");
+                const schema = insertCols.map(c => `  ${c.sqlName} ${c.sqlType} PATH '$.${c.sqlName}'`).join(',\n');
+
+                lines.push(`-- OPCIÓN A (MySQL 8+ / MariaDB 10.6+): JSON_TABLE transforma el JSON en filas.`);
+                lines.push(`INSERT INTO ${quoteIdent(table)} (${colList})`);
+                lines.push(`SELECT ${insertCols.map(c => c.sqlName).join(', ')}`);
+                lines.push(`FROM JSON_TABLE('${jsonLiteral}', '$[*]' COLUMNS (`);
+                lines.push(schema);
+                lines.push(`)) AS jt;`);
+            }
+
+            lines.push('');
+            lines.push(`-- ----------------------------------------------------------------------------`);
+            lines.push(`-- OPCIÓN B: INSERT INTO clásico (portable, útil para pocos registros)`);
+            lines.push(`-- ----------------------------------------------------------------------------`);
+            lines.push(`INSERT INTO ${quoteIdent(table)} (${colList})`);
+            lines.push('VALUES');
+
+            const rows = state.records.map(rec => {
+                const vals = insertCols.map(c => escapeSqlLiteral(rec[c.jsonKey], c.sqlType));
+                return `    (${vals.join(', ')})`;
+            });
+            lines.push(rows.join(',\n') + ';');
+
+            state.sqlBlocks.dml.raw = lines.join('\n');
+        }
+
+        // Convierte el JSON en literal seguro para PostgreSQL (usa dólar-quoting si hay $)
+        function pgJsonLiteral(jsonText) {
+            const dollarTag = '$json$';
+            if (!jsonText.includes(dollarTag)) {
+                return `${dollarTag}${jsonText}${dollarTag}`;
+            }
+            return `'${jsonText.replace(/'/g, "''")}'`;
+        }
+
+        // -------------------------------------------------------------------------
+        // 12.3 CONSULTAS: paginación por OFFSET y por CURSOR (Keyset)
+        // -------------------------------------------------------------------------
+        function generateQuery() {
+            const dialect = state.dialect;
+            const table = currentTable();
+            const cols = activeColumns();
+            const pk = pkColumn();
+            const equality = cols.filter(c => c.isWhere);
+            const ordered = cols.filter(c => c.orderDir);
+            const limit = state.pageSize || 20;
+
+            const selectList = cols.length ? cols.map(c => quoteIdent(c.sqlName)).join(', ') : '*';
+
+            const lines = [];
+            lines.push(`-- ============================================================================`);
+            lines.push(`-- 03. CONSULTAS DE PAGINACIÓN DE ALTO RENDIMIENTO`);
+            lines.push(`-- ============================================================================`);
+            lines.push('');
+
+            if (equality.length === 0 && ordered.length === 0) {
+                lines.push('-- Marca columnas de filtro (WHERE =) y de ordenamiento (ORDER BY) en el paso 2');
+                lines.push('-- para generar aquí las consultas optimizadas.');
+                state.sqlBlocks.query.raw = lines.join('\n');
+                return;
+            }
+
+            const whereClause = buildWhereClause(equality);
+            const orderClause = buildOrderBy(ordered, pk);
+
+            // ---- Página 1 ----
+            lines.push(`-- PÁGINA 1 (primera consulta de la lista)`);
+            lines.push(`SELECT ${selectList}`);
+            lines.push(`FROM ${quoteIdent(table)}${whereClause}${orderClause}`);
+            lines.push(`LIMIT ${limit};`);
+            lines.push('');
+
+            // ---- Página N con OFFSET ----
+            lines.push(`-- PÁGINA N con OFFSET (simple, pero se vuelve lenta con números de página altos:`);
+            lines.push(`-- el motor debe leer y descartar todas las filas anteriores)`);
+            lines.push(`SELECT ${selectList}`);
+            lines.push(`FROM ${quoteIdent(table)}${whereClause}${orderClause}`);
+            lines.push(`LIMIT ${limit} OFFSET ${limit * 2};   -- Página 3`);
+            lines.push('');
+
+            // ---- Keyset / Cursor ----
+            if (ordered.length > 0) {
+                const cursorCols = [...ordered];
+                const tiebreaker = pk || null;
+                const orderColNames = cursorCols.map(c => quoteIdent(c.sqlName));
+                const lastValues = cursorCols.map(c => escapeSqlLiteral(exampleValue(c), c.sqlType));
+                const dir = cursorCols[cursorCols.length - 1].orderDir;
+
+                lines.push(`-- ============================================================================`);
+                lines.push(`-- PAGINACIÓN POR CURSOR (Keyset Pagination) — SIN OFFSET`);
+                lines.push(`-- ============================================================================`);
+                lines.push(`-- En lugar de saltar N filas, pides "las siguientes después de este cursor".`);
+                lines.push(`-- El índice compuesto se recorre siempre desde un punto exacto, por lo que el`);
+                lines.push(`-- coste es constante aunque estés en la página 500.`);
+                lines.push('');
+
+                if (dialect === 'postgresql') {
+                    if (tiebreaker) {
+                        lines.push(`-- Cursor = (${cursorCols.map(c => c.sqlName).join(', ')}, ${tiebreaker.sqlName})`);
+                        lines.push(`SELECT ${selectList}`);
+                        lines.push(`FROM ${quoteIdent(table)}`);
+                        lines.push(`WHERE ${buildEqualityOnly(equality)}(${orderColNames.join(', ')}, ${quoteIdent(tiebreaker.sqlName)}) ${dir === 'DESC' ? '<' : '>'} (${lastValues.join(', ')}, ${escapeSqlLiteral(exampleValue(tiebreaker), tiebreaker.sqlType)})`);
+                        lines.push(`ORDER BY ${orderColNames.join(' ' + dir + ', ')} ${dir}, ${quoteIdent(tiebreaker.sqlName)} ${dir}`);
+                        lines.push(`LIMIT ${limit};`);
+                        lines.push('');
+                        lines.push(`-- La comparación de tuplas (a, b) < (x, y) es exactamente lo que el índice`);
+                        lines.push(`-- compuesto (equality..., order..., pk) resuelve en un solo index scan.`);
+                    } else {
+                        lines.push(`SELECT ${selectList}`);
+                        lines.push(`FROM ${quoteIdent(table)}`);
+                        lines.push(`WHERE ${buildEqualityOnly(equality)}${quoteIdent(cursorCols[0].sqlName)} ${dir === 'DESC' ? '<' : '>'} ${lastValues[0]}`);
+                        lines.push(`ORDER BY ${orderColNames.join(', ')} ${dir}`);
+                        lines.push(`LIMIT ${limit};`);
+                    }
+                } else {
+                    // MySQL / MariaDB: se expande la comparación de tuplas
+                    lines.push(`-- Cursor = (${cursorCols.map(c => c.sqlName).join(', ')}${tiebreaker ? ', ' + tiebreaker.sqlName : ''})`);
+                    const cursorCondition = buildMysqlKeysetCondition(orderColNames, lastValues, dir, tiebreaker, exampleValue(tiebreaker));
+                    lines.push(`SELECT ${selectList}`);
+                    lines.push(`FROM ${quoteIdent(table)}`);
+                    lines.push(`WHERE ${buildEqualityOnly(equality)}${cursorCondition}`);
+                    lines.push(`ORDER BY ${orderColNames.join(' ' + dir + ', ')} ${dir}${tiebreaker ? ', ' + quoteIdent(tiebreaker.sqlName) + ' ' + dir : ''}`);
+                    lines.push(`LIMIT ${limit};`);
+                }
+
+                lines.push('');
+                lines.push(`-- Devolver también el cursor de la última fila para pedir la siguiente página.`);
+            } else {
+                lines.push(`-- Consejo: selecciona una columna de ordenamiento (ASC/DESC) en el paso 2 para`);
+                lines.push(`-- generar la consulta de paginación por cursor (Keyset Pagination).`);
+            }
+
+            state.sqlBlocks.query.raw = lines.join('\n');
+        }
+
+        function exampleValue(col) {
+            for (const rec of state.records) {
+                const v = rec[col.jsonKey];
+                if (v !== null && v !== undefined && v !== '') return v;
+            }
+            return null;
+        }
+
+        function buildEqualityOnly(equality) {
+            if (equality.length === 0) return '';
+            return equality.map(c => `${quoteIdent(c.sqlName)} = ${escapeSqlLiteral(exampleValue(c), c.sqlType)}`).join(' AND ') + ' AND ';
+        }
+
+        function buildWhereClause(equality) {
+            if (equality.length === 0) return '';
+            return '\nWHERE ' + equality.map(c => `${quoteIdent(c.sqlName)} = ${escapeSqlLiteral(exampleValue(c), c.sqlType)}`).join('\n  AND ');
+        }
+
+        function buildOrderBy(ordered, pk) {
+            if (ordered.length === 0) return '';
+            const parts = ordered.map(c => `${quoteIdent(c.sqlName)} ${c.orderDir}`);
+            if (pk && !ordered.some(c => c.jsonKey === pk.jsonKey)) {
+                parts.push(`${quoteIdent(pk.sqlName)} ${ordered[ordered.length - 1].orderDir}`);
+            }
+            return '\nORDER BY ' + parts.join(', ');
+        }
+
+        function buildMysqlKeysetCondition(orderColNames, lastValues, dir, tiebreaker, tieValue) {
+            const op = dir === 'DESC' ? '<' : '>';
+            if (!tiebreaker) {
+                return `${orderColNames[0]} ${op} ${lastValues[0]}`;
+            }
+            const tieCol = quoteIdent(tiebreaker.sqlName);
+            if (orderColNames.length === 1) {
+                return `(${orderColNames[0]} ${op} ${lastValues[0]}\n   OR (${orderColNames[0]} = ${lastValues[0]} AND ${tieCol} ${op} ${escapeSqlLiteral(tieValue, tiebreaker.sqlType)}))`;
+            }
+            const terms = orderColNames.map((name, i) => {
+                const priorEqual = orderColNames.slice(0, i).map((n, j) => `${n} = ${lastValues[j]}`).join(' AND ');
+                const cond = `${name} ${op} ${lastValues[i]}`;
+                return priorEqual ? `(${priorEqual} AND ${cond})` : `(${cond})`;
+            });
+            terms.push(`${orderColNames.map((n, j) => `${n} = ${lastValues[j]}`).join(' AND ')} AND ${tieCol} ${op} ${escapeSqlLiteral(tieValue, tiebreaker.sqlType)}`);
+            return '(' + terms.join('\n   OR ') + ')';
+        }
+
+        // =========================================================================
+        // 13. CARGA DE ARCHIVO JSON (FileReader + Drag & Drop)
+        // =========================================================================
+        function setLoadedFileName(name) {
+            state.fileName = name;
+            loadedFileNameBadge.textContent = name;
+        }
+
+        function loadJsonText(text, name, { pretty = true } = {}) {
+            let toShow = text;
+            try {
+                const parsed = JSON.parse(text);
+                toShow = pretty ? JSON.stringify(parsed, null, 2) : text;
+            } catch (_) {
+                toShow = text;
+            }
+            jsonInput.value = toShow;
+            if (name) setLoadedFileName(name);
+            parseJsonSource(toShow, true);
+        }
+
+        function handleJsonFileUpload(file) {
+            if (!file) return;
+            const isJson = file.name.toLowerCase().endsWith('.json') || file.type === 'application/json';
+            if (!isJson) {
+                showToast('Selecciona un archivo con extensión .json');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const rawContent = String(event.target.result || '');
+                let ok = true;
+                try { JSON.parse(rawContent); } catch (_) { ok = false; }
+
+                loadJsonText(rawContent, file.name, { pretty: true });
+                if (ok) {
+                    showToast(`"${file.name}" cargado — ${state.records.length} registro${state.records.length === 1 ? '' : 's'} detectado${state.records.length === 1 ? '' : 's'}`);
+                } else {
+                    showToast('El archivo tiene errores de formato JSON');
+                }
+            };
+            reader.onerror = () => showToast('No se pudo leer el archivo seleccionado');
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        // =========================================================================
+        // 14. COPIAR / DESCARGAR / EXPORTAR
+        // =========================================================================
+        async function copyToClipboard(text, okMessage) {
+            if (!text) { showToast('No hay contenido para copiar'); return; }
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                showToast(okMessage || 'Copiado al portapapeles');
+            } catch (_) {
+                showToast('No se pudo copiar automáticamente');
+            }
+        }
+
+        function downloadBlob(content, filename, mime) {
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportCsv() {
+            if (state.records.length === 0) { showToast('No hay registros para exportar'); return; }
+            const exportCols = activeColumns();
+            const escapeCell = (val) => {
+                if (val === null || val === undefined) return '';
+                const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+            };
+
+            const headers = exportCols.map(c => c.sqlName).join(',');
+            const rows = state.records.map(rec => exportCols.map(c => escapeCell(rec[c.jsonKey])).join(','));
+            // BOM UTF-8 para acentos correctos en Excel / Supabase
+            const csv = '\uFEFF' + [headers, ...rows].join('\n');
+            downloadBlob(csv, `${currentTable()}_supabase.csv`, 'text/csv;charset=utf-8;');
+            showToast('CSV exportado (listo para el Table Editor de Supabase)');
+        }
+
+        function downloadAllSql() {
+            const parts = [];
+            ['ddl', 'dml', 'query'].forEach(key => {
+                const b = state.sqlBlocks[key];
+                parts.push(`-- ============================================================\n-- ${b.filename}\n-- ============================================================\n\n${b.raw || '-- (vacío)'}\n`);
+            });
+            downloadBlob(parts.join('\n\n'), `${currentTable()}_esquema_completo.sql`, 'text/plain;charset=utf-8;');
+            showToast('Script .sql descargado');
+        }
+
+        // =========================================================================
+        // 15. EVENTOS DE LA INTERFAZ
+        // =========================================================================
+        function bindEvents() {
+            // ---- Paso 1: carga de archivo ----
+            document.getElementById('btnSelectFile').addEventListener('click', (e) => {
+                e.stopPropagation();
+                jsonFileInput.click();
+            });
+            jsonDropZone.addEventListener('click', (e) => {
+                if (e.target !== jsonFileInput) jsonFileInput.click();
+            });
+            jsonFileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) handleJsonFileUpload(e.target.files[0]);
+                jsonFileInput.value = '';
+            });
+
+            ['dragenter', 'dragover'].forEach(evt =>
+                jsonDropZone.addEventListener(evt, (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    jsonDropZone.classList.add('border-sage-600', 'bg-sage-50/70');
+                }));
+            ['dragleave', 'drop'].forEach(evt =>
+                jsonDropZone.addEventListener(evt, (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    jsonDropZone.classList.remove('border-sage-600', 'bg-sage-50/70');
+                }));
+            jsonDropZone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer && e.dataTransfer.files;
+                if (files && files[0]) handleJsonFileUpload(files[0]);
+            });
+
+            // Evita que soltar un archivo fuera de la zona lo abra en el navegador
+            ['dragover', 'drop'].forEach(evt => window.addEventListener(evt, (e) => e.preventDefault()));
+
+            jsonInput.addEventListener('input', () => parseJsonSource(jsonInput.value, false));
+
+            document.getElementById('btnFormatJson').addEventListener('click', () => {
+                try {
+                    jsonInput.value = JSON.stringify(JSON.parse(jsonInput.value), null, 2);
+                    parseJsonSource(jsonInput.value, false);
+                    showToast('Formato JSON ordenado');
+                } catch (_) {
+                    showToast('El JSON contiene errores de sintaxis');
+                }
+            });
+
+            document.getElementById('btnLoadSample').addEventListener('click', () => {
+                const formatted = JSON.stringify(DEFAULT_PRODUCTS_JSON, null, 2);
+                state.columns = [];           // reinicia el mapeo previo
+                state.records = [];
+                jsonInput.value = formatted;
+                setLoadedFileName('productos_ejemplo.json');
+                parseJsonSource(formatted, true);
+                showToast('Ejemplo de tienda restaurado');
+            });
+
+            document.getElementById('btnFetchDummy').addEventListener('click', async () => {
+                const btn = document.getElementById('btnFetchDummy');
+                const prevHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Cargando...';
+                refreshIcons();
+                try {
+                    const res = await fetch('https://dummyjson.com/products?limit=8&select=id,category,title,price,rating,stock');
+                    if (!res.ok) throw new Error('http');
+                    const data = await res.json();
+                    const enriched = (data.products || []).map((p, i) => ({
+                        id: p.id,
+                        category: p.category,
+                        status: 'publicado',
+                        title: p.title,
+                        price: p.price,
+                        rating: p.rating,
+                        stock: p.stock,
+                        created_at: `2026-11-${String(10 + i).padStart(2, '0')} 10:00:00`
+                    }));
+                    state.columns = [];
+                    state.records = [];
+                    const formatted = JSON.stringify(enriched, null, 2);
+                    jsonInput.value = formatted;
+                    setLoadedFileName('dummyjson_products.json');
+                    parseJsonSource(formatted, true);
+                    showToast(`${enriched.length} productos importados desde DummyJSON`);
+                } catch (_) {
+                    showToast('No se pudo conectar con DummyJSON (revisa tu conexión)');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = prevHtml;
+                    refreshIcons();
+                }
+            });
+
+            // ---- Paso 2: tabla y parámetros ----
+            document.getElementById('tableName').addEventListener('input', (e) => {
+                state.tableName = e.target.value;
+                document.getElementById('headerTableBadge').textContent = currentTable();
+                generateAllSql();
+            });
+
+            document.getElementById('sqlDialect').addEventListener('change', (e) => {
+                state.dialect = e.target.value;
+                document.getElementById('headerDialectBadge').textContent = state.dialect === 'mysql' ? 'MySQL' : 'PostgreSQL';
+                // Los tipos SQL dependen del motor: se recalculan
+                state.columns.forEach(c => { c.sqlType = sqlTypeFor(c.inferred, state.dialect); });
+                renderColumnsTable();
+                generateAllSql();
+            });
+
+            document.getElementById('pageSize').addEventListener('input', (e) => {
+                const n = parseInt(e.target.value, 10);
+                state.pageSize = Number.isFinite(n) && n > 0 ? Math.min(n, 1000) : 20;
+                generateAllSql();
+            });
+
+            // Delegación de eventos en la tabla de columnas
+            columnsTableBody.addEventListener('change', (e) => {
+                const t = e.target;
+                if (t.dataset.includeCol !== undefined) {
+                    state.columns[+t.dataset.includeCol].included = t.checked;
+                } else if (t.dataset.whereCol !== undefined) {
+                    state.columns[+t.dataset.whereCol].isWhere = t.checked;
+                } else if (t.dataset.typeCol !== undefined) {
+                    const col = state.columns[+t.dataset.typeCol];
+                    col.inferred = t.value;
+                    col.sqlType = sqlTypeFor(col.inferred, state.dialect);
+                    col._isNumeric = col.inferred === 'integer' || col.inferred === 'number';
+                } else {
+                    return;
+                }
+                renderColumnsTable();
+                renderLiveIndexPreview();
+                generateAllSql();
+            });
+
+            columnsTableBody.addEventListener('input', (e) => {
+                const t = e.target;
+                if (t.dataset.renameCol !== undefined) {
+                    const col = state.columns[+t.dataset.renameCol];
+                    const clean = sanitizeSqlIdentifier(t.value);
+                    col.sqlName = clean;
+                    // Actualiza la insignia PK y el nombre sin perder el foco
+                    generateAllSql();
+                    renderLiveIndexPreview();
+                }
+            });
+
+            columnsTableBody.addEventListener('blur', (e) => {
+                if (e.target.dataset && e.target.dataset.renameCol !== undefined) {
+                    renderColumnsTable();
+                }
+            }, true);
+
+            columnsTableBody.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-order-col]');
+                if (!btn) return;
+                const i = +btn.dataset.orderCol;
+                const dir = btn.dataset.orderDir;
+                const col = state.columns[i];
+                // Al ordenar por una columna se asegura que esté incluida
+                col.included = true;
+                col.orderDir = col.orderDir === dir ? null : dir;
+                renderColumnsTable();
+                renderLiveIndexPreview();
+                generateAllSql();
+            });
+
+            // ---- Paso 3: pestañas y acciones ----
+            document.querySelectorAll('.sql-subtab').forEach(btn =>
+                btn.addEventListener('click', () => setActiveSqlTab(btn.dataset.sqlTab)));
+
+            document.getElementById('btnCopySql').addEventListener('click', () => {
+                copyToClipboard(state.sqlBlocks[state.activeSqlTab].raw, 'Bloque SQL copiado al portapapeles');
+            });
+            document.getElementById('btnDownloadSql').addEventListener('click', downloadAllSql);
+            document.getElementById('btnExportCsv').addEventListener('click', exportCsv);
+
+            // ---- Navegación entre pasos ----
+            document.querySelectorAll('[data-step-btn]').forEach(btn =>
+                btn.addEventListener('click', () => goToStep(Number(btn.dataset.stepBtn))));
+            document.querySelectorAll('[data-go-step]').forEach(btn =>
+                btn.addEventListener('click', () => goToStep(Number(btn.dataset.goStep))));
+
+            // ---- Atajos de teclado (1, 2, 3) cuando no se está escribiendo ----
+            document.addEventListener('keydown', (e) => {
+                const tag = (e.target.tagName || '').toLowerCase();
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+                if (e.key === '1') goToStep(1);
+                if (e.key === '2') goToStep(2);
+                if (e.key === '3') goToStep(3);
+            });
+        }
+
+        // =========================================================================
+        // 16. INICIALIZACIÓN
+        // =========================================================================
+        function init() {
+            bindEvents();
+            goToStep(1);
+            setActiveSqlTab('ddl');
+
+            // Carga inicial con el ejemplo de tienda
+            const formatted = JSON.stringify(DEFAULT_PRODUCTS_JSON, null, 2);
+            jsonInput.value = formatted;
+            setLoadedFileName('productos_ejemplo.json');
+            parseJsonSource(formatted, true);
+
+            refreshIcons();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+    </script>
+</body>
+</html>
